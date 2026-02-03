@@ -31,7 +31,7 @@ rand = { version = "0.8.5", default-features = false, features = ["getrandom"] }
 [build-dependencies]
 plonky2_util = { version = "0.2.0", path = "../util", default-features = false }
 anyhow = { workspace = true }
-syn = { version = "1", features = ["full"] }
+syn = { version = "2", features = ["full"] }
 proc-macro2 = "1"
 quote = "1"
 
