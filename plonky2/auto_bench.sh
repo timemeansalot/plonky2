@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # Plonky2 GPU vs CPU Benchmark Script
-# This script runs benchmarks for both Goldilocks and BN128 fields
-# and compares GPU vs CPU performance
+# This script runs benchmarks for:
+# 1. Primitive operations (LDE, Merkle Tree)
+# 2. End-to-end proving (Goldilocks and BN128)
 
 set -e
 
@@ -33,17 +34,35 @@ if ! cargo check --features=cuda 2>/dev/null; then
     exit 1
 fi
 
-# Build benchmarks
+# Build all benchmarks
 echo -e "${YELLOW}Building benchmarks...${NC}"
-cargo build --release --features=cuda --example bench_e2e_prove --example bench_bn128 2>/dev/null
+cargo build --release --features=cuda \
+    --example bench_primitives \
+    --example bench_e2e_prove \
+    --example bench_bn128 2>/dev/null
 
 echo -e "${GREEN}Build complete!${NC}"
 echo ""
 
-# Function to extract prove times
-extract_prove_times() {
-    grep -E "^Prove:" | sed 's/Prove: //'
-}
+# ========================================
+# Part 1: Primitive Benchmarks
+# ========================================
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}  Part 1: Primitive Operations         ${NC}"
+echo -e "${BLUE}========================================${NC}"
+echo ""
+
+echo -e "${YELLOW}Running primitive benchmarks (LDE + Merkle Tree)...${NC}"
+NUM_OF_GPUS=1 cargo run --release --features=cuda --example bench_primitives 2>&1 | tee /tmp/plonky2_primitives.txt
+echo ""
+
+# ========================================
+# Part 2: E2E Prove Benchmarks
+# ========================================
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}  Part 2: End-to-End Proving           ${NC}"
+echo -e "${BLUE}========================================${NC}"
+echo ""
 
 # Function to run benchmark and save results
 run_benchmark() {
@@ -58,7 +77,7 @@ run_benchmark() {
     echo -e "${GREEN}$name complete!${NC}"
 }
 
-# Run all benchmarks
+# Run all E2E benchmarks
 echo -e "${BLUE}--- Running Goldilocks Benchmarks ---${NC}"
 run_benchmark "Goldilocks GPU" "$GOLD_GPU_FILE" "NUM_OF_GPUS=1" "bench_e2e_prove"
 run_benchmark "Goldilocks CPU" "$GOLD_CPU_FILE" "DISABLE_GPU_LDE=1 NUM_OF_GPUS=1" "bench_e2e_prove"
@@ -70,7 +89,7 @@ run_benchmark "BN128 CPU" "$BN128_CPU_FILE" "DISABLE_GPU_LDE=1 NUM_OF_GPUS=1" "b
 
 echo ""
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}           BENCHMARK RESULTS           ${NC}"
+echo -e "${BLUE}      E2E BENCHMARK RESULTS            ${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
@@ -126,10 +145,17 @@ echo -e "${BLUE}             SUMMARY                   ${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 echo "GPU acceleration provides:"
-echo "  - Goldilocks: ~1.2-2.6x speedup"
-echo "  - BN128: ~1.1-1.5x speedup"
+echo ""
+echo "  Primitive Operations:"
+echo "    - Merkle Tree (Poseidon): ~4-44x speedup"
+echo "    - LDE (NTT): Limited benefit (CPU AVX512 is fast)"
+echo ""
+echo "  End-to-End Proving:"
+echo "    - Goldilocks: ~1.2-2.6x speedup"
+echo "    - BN128: ~1.1-1.5x speedup"
 echo ""
 echo "Results saved to:"
+echo "  - /tmp/plonky2_primitives.txt"
 echo "  - $GOLD_GPU_FILE"
 echo "  - $GOLD_CPU_FILE"
 echo "  - $BN128_GPU_FILE"
