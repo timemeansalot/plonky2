@@ -215,7 +215,11 @@ impl<F: RichField + Extendable<D>, C: GenericConfig<D, F = F>, const D: usize>
         #[cfg(any(test, doctest))]
         init_gpu();
 
-        if log_n + rate_bits > 1
+        // Check if GPU LDE should be disabled (due to bugs in some CUDA implementations)
+        let disable_gpu_lde = std::env::var("DISABLE_GPU_LDE").is_ok();
+
+        if !disable_gpu_lde
+            && log_n + rate_bits > 1
             && polynomials.len() > 0
             && pols * (1 << (log_n + rate_bits)) < (1 << 31)
         {
