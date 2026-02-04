@@ -24,12 +24,12 @@ plonky2_u32 = { path = "../u32" }
 num = "0.4"
 itertools = "0.10"
 serde = "1"
-rand = { version = "0.8.5", default-features = false, features = ["getrandom"] }
+rand = { version = "0.9.2", default-features = false, features = ["getrandom"] }
 hex = "0.4.3"
 zeknox = { workspace = true, optional = true }
 
 [dev-dependencies]
-rand = { version = "0.8.5", features = ["min_const_gen"] }
+rand = { version = "0.9.2", features = ["min_const_gen"] }
 anyhow = "1.0.51"
 criterion = "0.4"
 log = "0.4"
