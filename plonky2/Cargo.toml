@@ -19,6 +19,7 @@ std = ["anyhow/std", "rand/std", "itertools/use_std"]
 timing = ["std", "dep:web-time"]
 cuda = ["zeknox/cuda"]
 no_cuda = ["zeknox/no_cuda"]
+metal = []  # Placeholder for Metal GPU acceleration (not yet implemented)
 batch = []
 cuda_timing = []
 papi = []

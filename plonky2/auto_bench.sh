@@ -4,24 +4,41 @@
 # This script runs E2E proving benchmarks comparing true GPU vs CPU performance
 # Automatically detects OS and uses appropriate GPU backend (CUDA for Linux, Metal for macOS)
 #
-# Usage: ./auto_bench.sh [ROUNDS] [START] [END]
-#   ROUNDS - Number of benchmark rounds (default: 3)
-#   START  - Starting log_size (default: 13)
-#   END    - Ending log_size (default: 18)
+# Usage: ./auto_bench.sh [ROUNDS] [START] [END] [--cpu-only]
+#   ROUNDS    - Number of benchmark rounds (default: 3)
+#   START     - Starting log_size (default: 13)
+#   END       - Ending log_size (default: 18)
+#   --cpu-only - Run CPU-only benchmarks (skip GPU)
 #
 # Examples:
 #   ./auto_bench.sh              # Use defaults
 #   ./auto_bench.sh 5 14 20      # 5 rounds, log_size 14-20
+#   ./auto_bench.sh --cpu-only   # CPU-only mode
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Parse command line arguments
-ROUNDS=${1:-3}
-START=${2:-13}
-END=${3:-18}
+# Check for --cpu-only flag
+CPU_ONLY=false
+for arg in "$@"; do
+    if [ "$arg" = "--cpu-only" ]; then
+        CPU_ONLY=true
+    fi
+done
+
+# Parse command line arguments (skip --cpu-only)
+args=()
+for arg in "$@"; do
+    if [ "$arg" != "--cpu-only" ]; then
+        args+=("$arg")
+    fi
+done
+
+ROUNDS=${args[0]:-3}
+START=${args[1]:-13}
+END=${args[2]:-18}
 
 # Colors for output
 RED='\033[0;31m'
@@ -37,11 +54,13 @@ case "$OS_TYPE" in
         GPU_FEATURE="cuda"
         GPU_ENV="NUM_OF_GPUS=1"
         OS_NAME="Linux"
+        GPU_IMPLEMENTED=true
         ;;
     Darwin*)
         GPU_FEATURE="metal"
         GPU_ENV=""
         OS_NAME="macOS"
+        GPU_IMPLEMENTED=false  # Metal not yet implemented
         ;;
     *)
         echo -e "${RED}Error: Unsupported OS: $OS_TYPE${NC}"
@@ -71,25 +90,38 @@ echo -e "  START:  ${GREEN}$START${NC}"
 echo -e "  END:    ${GREEN}$END${NC}"
 echo ""
 
-# Check for GPU feature
-echo -e "${YELLOW}Checking for $GPU_FEATURE support...${NC}"
-if ! cargo check --features=$GPU_FEATURE 2>/dev/null; then
-    echo -e "${RED}Error: $GPU_FEATURE feature not available.${NC}"
-    if [ "$GPU_FEATURE" = "cuda" ]; then
-        echo -e "${RED}Make sure CUDA is installed and configured.${NC}"
-    else
-        echo -e "${RED}Make sure Metal support is available.${NC}"
-    fi
-    exit 1
+# Handle Metal (not yet implemented)
+if [ "$GPU_FEATURE" = "metal" ] && [ "$GPU_IMPLEMENTED" = false ] && [ "$CPU_ONLY" = false ]; then
+    echo -e "${YELLOW}WARNING: Metal GPU acceleration is not yet implemented.${NC}"
+    echo -e "${YELLOW}The 'metal' feature is a placeholder for future development.${NC}"
+    echo -e "${YELLOW}See metal_draft.md for the migration plan.${NC}"
+    echo ""
+    echo -e "Running in ${GREEN}CPU-only${NC} mode..."
+    echo ""
+    CPU_ONLY=true
 fi
-echo -e "${GREEN}$GPU_FEATURE support detected!${NC}"
-echo ""
 
-# Build all benchmarks (both CPU and GPU versions)
-echo -e "${YELLOW}Building benchmarks (GPU version with $GPU_FEATURE)...${NC}"
-cargo build --release --features=$GPU_FEATURE \
-    --example bench_e2e_prove \
-    --example bench_bn128 2>/dev/null
+# Check for GPU feature (only if not CPU-only mode)
+if [ "$CPU_ONLY" = false ]; then
+    echo -e "${YELLOW}Checking for $GPU_FEATURE support...${NC}"
+    if ! cargo check --features=$GPU_FEATURE 2>/dev/null; then
+        echo -e "${RED}Error: $GPU_FEATURE feature not available.${NC}"
+        if [ "$GPU_FEATURE" = "cuda" ]; then
+            echo -e "${RED}Make sure CUDA is installed and configured.${NC}"
+        else
+            echo -e "${RED}Make sure Metal support is available.${NC}"
+        fi
+        exit 1
+    fi
+    echo -e "${GREEN}$GPU_FEATURE support detected!${NC}"
+    echo ""
+
+    # Build all benchmarks (both CPU and GPU versions)
+    echo -e "${YELLOW}Building benchmarks (GPU version with $GPU_FEATURE)...${NC}"
+    cargo build --release --features=$GPU_FEATURE \
+        --example bench_e2e_prove \
+        --example bench_bn128 2>/dev/null
+fi
 
 echo -e "${YELLOW}Building benchmarks (CPU version)...${NC}"
 cargo build --release \
@@ -102,37 +134,39 @@ echo ""
 # ========================================
 # Part 1: Criterion Benchmarks (Merkle & LDE)
 # ========================================
-echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  Part 1: Primitive Operations         ${NC}"
-echo -e "${BLUE}  (Merkle Tree & LDE+Merkle)           ${NC}"
-echo -e "${BLUE}========================================${NC}"
-echo ""
+if [ "$CPU_ONLY" = false ]; then
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "${BLUE}  Part 1: Primitive Operations         ${NC}"
+    echo -e "${BLUE}  (Merkle Tree & LDE+Merkle)           ${NC}"
+    echo -e "${BLUE}========================================${NC}"
+    echo ""
 
-echo -e "${YELLOW}Running Merkle Tree benchmark (CPU)...${NC}"
-cargo bench --bench=merkle 2>&1 | tee "$MERKLE_CPU_FILE"
-echo -e "${GREEN}Merkle CPU complete!${NC}"
-echo ""
+    echo -e "${YELLOW}Running Merkle Tree benchmark (CPU)...${NC}"
+    cargo bench --bench=merkle 2>&1 | tee "$MERKLE_CPU_FILE"
+    echo -e "${GREEN}Merkle CPU complete!${NC}"
+    echo ""
 
-echo -e "${YELLOW}Running Merkle Tree benchmark (GPU with $GPU_FEATURE)...${NC}"
-env $GPU_ENV cargo bench --bench=merkle --features=$GPU_FEATURE 2>&1 | tee "$MERKLE_GPU_FILE"
-echo -e "${GREEN}Merkle GPU complete!${NC}"
-echo ""
+    echo -e "${YELLOW}Running Merkle Tree benchmark (GPU with $GPU_FEATURE)...${NC}"
+    env $GPU_ENV cargo bench --bench=merkle --features=$GPU_FEATURE 2>&1 | tee "$MERKLE_GPU_FILE"
+    echo -e "${GREEN}Merkle GPU complete!${NC}"
+    echo ""
 
-echo -e "${YELLOW}Running LDE+Merkle benchmark (CPU)...${NC}"
-cargo bench --bench=lde 2>&1 | tee "$LDE_CPU_FILE"
-echo -e "${GREEN}LDE CPU complete!${NC}"
-echo ""
+    echo -e "${YELLOW}Running LDE+Merkle benchmark (CPU)...${NC}"
+    cargo bench --bench=lde 2>&1 | tee "$LDE_CPU_FILE"
+    echo -e "${GREEN}LDE CPU complete!${NC}"
+    echo ""
 
-echo -e "${YELLOW}Running LDE+Merkle benchmark (GPU with $GPU_FEATURE)...${NC}"
-env $GPU_ENV cargo bench --bench=lde --features=$GPU_FEATURE 2>&1 | tee "$LDE_GPU_FILE"
-echo -e "${GREEN}LDE GPU complete!${NC}"
-echo ""
+    echo -e "${YELLOW}Running LDE+Merkle benchmark (GPU with $GPU_FEATURE)...${NC}"
+    env $GPU_ENV cargo bench --bench=lde --features=$GPU_FEATURE 2>&1 | tee "$LDE_GPU_FILE"
+    echo -e "${GREEN}LDE GPU complete!${NC}"
+    echo ""
 
-# Display Criterion benchmark results
-echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  PRIMITIVE BENCHMARK RESULTS          ${NC}"
-echo -e "${BLUE}========================================${NC}"
-echo ""
+    # Display Criterion benchmark results
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "${BLUE}  PRIMITIVE BENCHMARK RESULTS          ${NC}"
+    echo -e "${BLUE}========================================${NC}"
+    echo ""
+fi
 
 # Function to extract time from criterion output line
 # Input: "                        time:   [24.711 ms 26.693 ms 27.914 ms]"
@@ -241,14 +275,20 @@ display_lde_comparison() {
     echo ""
 }
 
-display_merkle_comparison "$MERKLE_GPU_FILE" "$MERKLE_CPU_FILE"
-display_lde_comparison "$LDE_GPU_FILE" "$LDE_CPU_FILE"
+if [ "$CPU_ONLY" = false ]; then
+    display_merkle_comparison "$MERKLE_GPU_FILE" "$MERKLE_CPU_FILE"
+    display_lde_comparison "$LDE_GPU_FILE" "$LDE_CPU_FILE"
+fi
 
 # ========================================
 # Part 2: E2E Prove Benchmarks
 # ========================================
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  Part 2: End-to-End Proving           ${NC}"
+if [ "$CPU_ONLY" = true ]; then
+    echo -e "${BLUE}  CPU-Only Benchmarks                  ${NC}"
+else
+    echo -e "${BLUE}  Part 2: End-to-End Proving           ${NC}"
+fi
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
@@ -278,17 +318,25 @@ run_cpu_benchmark() {
 
 # Run all E2E benchmarks
 echo -e "${BLUE}--- Running Goldilocks Benchmarks ---${NC}"
-run_gpu_benchmark "Goldilocks" "$GOLD_GPU_FILE" "bench_e2e_prove"
+if [ "$CPU_ONLY" = false ]; then
+    run_gpu_benchmark "Goldilocks" "$GOLD_GPU_FILE" "bench_e2e_prove"
+fi
 run_cpu_benchmark "Goldilocks" "$GOLD_CPU_FILE" "bench_e2e_prove"
 
 echo ""
 echo -e "${BLUE}--- Running BN128 Benchmarks ---${NC}"
-run_gpu_benchmark "BN128" "$BN128_GPU_FILE" "bench_bn128"
+if [ "$CPU_ONLY" = false ]; then
+    run_gpu_benchmark "BN128" "$BN128_GPU_FILE" "bench_bn128"
+fi
 run_cpu_benchmark "BN128" "$BN128_CPU_FILE" "bench_bn128"
 
 echo ""
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}      E2E BENCHMARK RESULTS            ${NC}"
+if [ "$CPU_ONLY" = true ]; then
+    echo -e "${BLUE}      CPU BENCHMARK RESULTS            ${NC}"
+else
+    echo -e "${BLUE}      E2E BENCHMARK RESULTS            ${NC}"
+fi
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
@@ -335,23 +383,59 @@ display_comparison() {
     echo ""
 }
 
+# Function to display CPU-only results
+display_cpu_only() {
+    local title=$1
+    local cpu_file=$2
+
+    echo -e "${GREEN}=== $title ===${NC}"
+    echo ""
+    printf "%-8s | %-12s\n" "Degree" "CPU Prove"
+    printf "%-8s-+-%-12s\n" "--------" "------------"
+
+    local degrees=($(grep "Circuit size" "$cpu_file" | sed 's/.*2\^\([0-9]*\).*/\1/'))
+    local cpu_times=($(grep "^Prove:" "$cpu_file" | sed 's/Prove: //'))
+
+    for i in "${!degrees[@]}"; do
+        local deg="${degrees[$i]}"
+        local cpu="${cpu_times[$i]}"
+        printf "%-8s | %-12s\n" "$deg" "$cpu"
+    done
+    echo ""
+}
+
 # Display results
-display_comparison "Goldilocks (64-bit field)" "$GOLD_GPU_FILE" "$GOLD_CPU_FILE"
-display_comparison "BN128 (254-bit hashing)" "$BN128_GPU_FILE" "$BN128_CPU_FILE"
+if [ "$CPU_ONLY" = true ]; then
+    display_cpu_only "Goldilocks (64-bit field)" "$GOLD_CPU_FILE"
+    display_cpu_only "BN128 (254-bit hashing)" "$BN128_CPU_FILE"
+else
+    display_comparison "Goldilocks (64-bit field)" "$GOLD_GPU_FILE" "$GOLD_CPU_FILE"
+    display_comparison "BN128 (254-bit hashing)" "$BN128_GPU_FILE" "$BN128_CPU_FILE"
+fi
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}             SUMMARY                   ${NC}"
 echo -e "${BLUE}========================================${NC}"
-echo "Results saved to:"
-echo "  Primitive benchmarks:"
-echo "    - $MERKLE_CPU_FILE"
-echo "    - $MERKLE_GPU_FILE"
-echo "    - $LDE_CPU_FILE"
-echo "    - $LDE_GPU_FILE"
-echo "  E2E benchmarks:"
-echo "    - $GOLD_GPU_FILE"
-echo "    - $GOLD_CPU_FILE"
-echo "    - $BN128_GPU_FILE"
-echo "    - $BN128_CPU_FILE"
+if [ "$CPU_ONLY" = true ]; then
+    echo ""
+    echo -e "${YELLOW}Note: Running in CPU-only mode (Metal not yet implemented)${NC}"
+    echo "See metal_draft.md for the Metal migration plan."
+    echo ""
+    echo "Results saved to:"
+    echo "  - $GOLD_CPU_FILE"
+    echo "  - $BN128_CPU_FILE"
+else
+    echo "Results saved to:"
+    echo "  Primitive benchmarks:"
+    echo "    - $MERKLE_CPU_FILE"
+    echo "    - $MERKLE_GPU_FILE"
+    echo "    - $LDE_CPU_FILE"
+    echo "    - $LDE_GPU_FILE"
+    echo "  E2E benchmarks:"
+    echo "    - $GOLD_GPU_FILE"
+    echo "    - $GOLD_CPU_FILE"
+    echo "    - $BN128_GPU_FILE"
+    echo "    - $BN128_CPU_FILE"
+fi
 echo ""
 echo -e "${GREEN}Benchmark complete!${NC}"
