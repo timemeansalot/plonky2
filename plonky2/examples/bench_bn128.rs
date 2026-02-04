@@ -1,4 +1,17 @@
 /// E2E proving benchmark for BN128 to compare CPU vs GPU performance
+/// Run with:
+///   CPU only:  cargo run --release --example bench_bn128 -- [ROUNDS] [START] [END]
+///   With CUDA: NUM_OF_GPUS=1 cargo run --release --features=cuda --example bench_bn128 -- [ROUNDS] [START] [END]
+///
+/// Arguments:
+///   ROUNDS - Number of benchmark rounds (default: 1)
+///   START  - Starting log_size (default: 13)
+///   END    - Ending log_size (default: 22)
+///
+/// Examples:
+///   cargo run --release --example bench_bn128 -- 3 13 18
+///   NUM_OF_GPUS=1 cargo run --release --features=cuda --example bench_bn128 -- 5 14 20
+
 use anyhow::Result;
 use plonky2::field::types::Field;
 use plonky2::iop::witness::{PartialWitness, WitnessWrite};
@@ -20,7 +33,23 @@ use jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-const ROUNDS: usize = 1;
+fn parse_args() -> (usize, usize, usize) {
+    let args: Vec<String> = std::env::args().collect();
+
+    let rounds = args.get(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+
+    let start = args.get(2)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(13);
+
+    let end = args.get(3)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(22);
+
+    (rounds, start, end)
+}
 
 #[cfg(feature = "cuda")]
 fn init_gpu() {
@@ -54,6 +83,9 @@ fn init_gpu() {
 }
 
 fn main() -> Result<()> {
+    // Parse command line arguments
+    let (rounds, start, end) = parse_args();
+
     let _ = env_logger::builder().format_timestamp(None).try_init();
 
     #[cfg(feature = "cuda")]
@@ -64,10 +96,11 @@ fn main() -> Result<()> {
     type F = <C as GenericConfig<D>>::F;
 
     println!("Using PoseidonBN128GoldilocksConfig (BN128 hashing)");
-    println!("Running {} rounds per circuit size\n", ROUNDS);
+    println!("Running {} rounds per circuit size", rounds);
+    println!("Log size range: {} to {}\n", start, end);
 
-    // Test circuit sizes 13-22 for BN128
-    for log_size in 13..=22 {
+    // Test circuit sizes for BN128
+    for log_size in start..=end {
         println!("============================================================");
         println!("Circuit size: 2^{} = {} gates", log_size, 1 << log_size);
         println!("============================================================");
@@ -76,7 +109,7 @@ fn main() -> Result<()> {
         let mut prove_times: Vec<Duration> = Vec::new();
         let mut verify_times: Vec<Duration> = Vec::new();
 
-        for round in 0..ROUNDS {
+        for round in 0..rounds {
             println!("\n--- Round {} ---", round + 1);
 
             let config = CircuitConfig::standard_recursion_config();
@@ -121,9 +154,9 @@ fn main() -> Result<()> {
             println!("Verify: {:?}", verify_time);
         }
 
-        let avg_build: Duration = build_times.iter().sum::<Duration>() / ROUNDS as u32;
-        let avg_prove: Duration = prove_times.iter().sum::<Duration>() / ROUNDS as u32;
-        let avg_verify: Duration = verify_times.iter().sum::<Duration>() / ROUNDS as u32;
+        let avg_build: Duration = build_times.iter().sum::<Duration>() / rounds as u32;
+        let avg_prove: Duration = prove_times.iter().sum::<Duration>() / rounds as u32;
+        let avg_verify: Duration = verify_times.iter().sum::<Duration>() / rounds as u32;
 
         println!("\n>>> AVERAGE for 2^{} ({} gates) <<<", log_size, 1 << log_size);
         println!("  Build:  {:?}", avg_build);
